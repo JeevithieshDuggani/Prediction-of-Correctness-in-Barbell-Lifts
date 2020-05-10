@@ -1,0 +1,168 @@
+---
+title: "Prediction of Correctness in Barbell Lifts"
+author: "Jeevithiesh Duggani"
+date: "09/05/2020"
+output: 
+    html_document:
+        toc: true
+---
+```{r setup, include=FALSE}
+    options(scipen = 10)
+    
+```
+
+## Abstract
+This project aims to use data from `accelerometers` on the `belt`, `forearm`, `arm`, and `dumbell` of `6` participants to **predict** the `correctness` of the `Barbell Lift`. They were asked to perform barbell lifts `correctly` and `incorrectly` in **5** different ways.
+
+Information regarding the dataset used can be looked up at the [Human Activity Recognition](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) (section on the Weight Lifting Exercise Dataset).
+
+## Load the essential Libraries
+Import the necessary libraries.
+
+- caret
+- ggplot2
+- randomForest
+- rpart
+- gbm
+```{r import libraries}
+    suppressPackageStartupMessages(library(caret))
+    suppressPackageStartupMessages(library(ggplot2))
+    suppressPackageStartupMessages(library(randomForest))
+    suppressPackageStartupMessages(library(rpart))
+    suppressPackageStartupMessages(library(gbm))
+```
+
+## Download and load the datasets
+Download the datasets `pml-training.csv` and `pml-testing.csv` and load the datasets into `pmlTrain` and `pmlTest` respectively.
+
+Initialize the seed to `100`.
+```{r download and load datasets, results='hide'}
+    trainExists <- file.exists("pml-training.csv")
+    testExists  <- file.exists("pml-testing.csv")
+    
+    trainFile   <- "pml-training.csv"
+    testFile    <- "pml-testing.csv"
+    trainUrl    <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    testUrl     <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    
+    if(!trainExists)        download.file(trainUrl, trainFile)
+    if(!exists("pmlTrain")) pmlTrain <- read.csv(trainFile)
+    if(!testExists)         download.file(testUrl, testFile)
+    if(!exists("pmlTest"))  pmlTest  <- read.csv(testFile)
+
+    set.seed(100)
+```
+
+## Cleaning the Data
+Check for the dimensions of the `Training Dataset`.
+```{r dim of pmlTrain}
+    dim(pmlTrain)
+```
+
+As the no. of observations in `pmlTrain` is high, generate a validation dataset with `40%` of the `training data`.
+```{r generate Validation Dataset}
+    inTrain  <- createDataPartition(pmlTrain$classe, p = 0.6, list = FALSE)
+    pmlValid <- pmlTrain[-inTrain,]
+    pmlTrain <- pmlTrain[inTrain,]
+    dim(pmlTrain); dim(pmlValid) 
+```
+
+There are plenty of variables with `near zero values`. They do not contribute much to the prediction model, hence are to be `removed`. 
+```{r cleaning the data of nearly zero values}
+    nZV      <- nearZeroVar(pmlTrain)
+    pmlTrain <- pmlTrain[-nZV]
+    pmlValid <- pmlValid[-nZV]
+    dim(pmlTrain); dim(pmlValid)
+```
+
+Remove the `variables` that are mostly consisting of `NA` values. They do not provide much information for the `prediction model`. 
+```{r avg no. of NA in columns}
+    tNA      <- sapply(pmlTrain, function(x) mean(is.na(x)))
+    unique(tNA)
+```
+As the columns are either `completely free` of `NA` or `97.97045%` full of `NAs`, ignore the columns with `tNA != 0`.
+
+If the no. of `NA's` in the column of the `variable` is greater than `97%` then remove such columns from the data. 
+```{r cleaning the data of NA values}
+    pmlTrain <- pmlTrain[tNA == 0]
+    pmlValid <- pmlValid[tNA == 0]
+    dim(pmlTrain); dim(pmlValid)
+```
+
+Remove the `first five rows` as they are just `identifying` the `observations`.
+```{r cleaning the data of identifying variables}
+    pmlTrain <- pmlTrain[-(1:5)]
+    pmlValid <- pmlValid[-(1:5)]
+```
+
+The number of `correlated factors` is less than `5%`, therfore it is unwise to preprocess the data under `Principal Component Analysis`.
+
+## Building a Predictive Model
+Three predictive models are to be built.
+
+- Decision Tree
+- Random Forest
+- Generalized Boosted Model
+
+### Decision Tree
+Generate the decision tree predictive model 
+```{r generate a decision tree predictive model, cache=TRUE}
+    set.seed(100)
+    modelDT   <- train(classe ~ ., pmlTrain, method = "rpart")
+    modelDT$finalModel
+```
+
+Check the Prediction for the `Validation Set`.
+```{r check the predicton for the validation set of the decision tree, cache=TRUE}
+    predDT <- predict(modelDT, newdata=pmlValid)
+    confusionMatrix(predDT, as.factor(pmlValid$classe))
+```
+
+### Random Forest
+Generate the random forest predictive model 
+```{r generate a random forest predictive model, cache=TRUE}
+    set.seed(100)
+    contRF  <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+    modelRF <- train(classe ~ ., data = pmlTrain, method = "rf", trControl = contRF)
+    modelRF$finalModel
+```
+
+Check the Prediction for the `Validation Set`.
+```{r check the predicton for the validation set of the random forest, cache=TRUE}
+    predRF <- predict(modelRF, newdata = pmlValid)
+    confusionMatrix(predRF, as.factor(pmlValid$classe))
+```
+
+### Generalized Boosted Model
+Generate the Generalized Boosted predictive model 
+```{r generate an genaralized predictive model}
+    set.seed(100)
+    contGB  <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+    modelGB <- train(classe ~ ., data = pmlTrain, method = "gbm", 
+                     trControl = contGB, verbose = FALSE)
+    modelGB$finalModel
+```
+
+Check the Prediction for the `Validation Set`.
+```{r check the predicton for the validation set of the generalized model}
+    predGB <- predict(modelGB, newdata = pmlValid)
+    confusionMatrix(predGB, as.factor(pmlValid$classe))
+```
+
+## Results
+
+1. The accuracy of `Decision Trees` is `49.35%`
+2. The accuracy of `Random Forests` is `99.53%`
+3. The accuracy of `Generalized Boosted Model` is `98.89%`.
+
+> Therefore, the Random Forest Model is the best Model to use for prediction
+
+Predict the results of `pmlTest` using `modelRF`.
+```{r Predict pmlTest}
+    results <- predict(modelRF, newdata = pmlTest)
+    results
+```
+
+The `predictions` received are `B A B A A E D B A A B C B A E E A B B`.
+                                
+                                ***End***
